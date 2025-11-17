@@ -1,11 +1,9 @@
 import express from "express";
-import Course from "../models/Course.js";
-
 const router = express.Router();
 
-// Test route
-router.get("/test", (req, res) => {
-  res.json({ message: "Courses route working" });
+// Example route
+router.get("/", (req, res) => {
+  res.send("Courses route works!");
 });
 
 export default router;
