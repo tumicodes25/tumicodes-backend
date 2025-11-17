@@ -23,6 +23,12 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/courses", coursesRoutes);
 
+// Health
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', message: 'Server is running!' });
+});
+
+
 // Connect to MongoDB
 mongoose
   .connect(process.env.MONGO_URI, {
