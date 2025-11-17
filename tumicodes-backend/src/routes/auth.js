@@ -1,8 +1,9 @@
-// src/routes/auth.js
 import express from "express";
+import User from "../models/User.js";
+
 const router = express.Router();
 
-// Test route to make sure server works
+// Test route
 router.get("/test", (req, res) => {
   res.json({ message: "Auth route working" });
 });
