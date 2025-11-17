@@ -1,11 +1,13 @@
 import express from "express";
-import User from "../models/User.js";
-
 const router = express.Router();
 
-// Test route
-router.get("/test", (req, res) => {
-  res.json({ message: "Auth route working" });
+// Example route
+router.post("/login", (req, res) => {
+  res.send("Login route works!");
+});
+
+router.post("/register", (req, res) => {
+  res.send("Register route works!");
 });
 
 export default router;
