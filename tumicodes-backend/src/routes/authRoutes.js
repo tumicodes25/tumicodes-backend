@@ -1,6 +1,10 @@
-const express = require('express');
+// src/routes/auth.js
+import express from "express";
 const router = express.Router();
-const authController = require('../controllers/authController');
-router.post('/register', authController.register);
-router.post('/login', authController.login);
-module.exports = router;
+
+// Test route
+router.get("/test", (req, res) => {
+  res.json({ message: "Auth route working" });
+});
+
+export default router;
