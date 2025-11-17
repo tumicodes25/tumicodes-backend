@@ -1,39 +1,69 @@
-require('dotenv').config();
-const express = require('express');
-const helmet = require('helmet');
-const cors = require('cors');
-const compression = require('compression');
-const rateLimit = require('express-rate-limit');
-const mongoose = require('./config/db');
-const telegram = require('./config/telegram');
-const authRoutes = require('./routes/authRoutes');
-const courseRoutes = require('./routes/courseRoutes');
-const contactRoutes = require('./routes/contactRoutes');
-const errorHandler = require('./utils/errorHandler');
+// server.js
+require("dotenv").config();
+const express = require("express");
+const cors = require("cors");
+const rateLimit = require("express-rate-limit");
+const connectDB = require("./config/db");
 
 const app = express();
-app.use(helmet());
-app.use(compression());
-app.use(cors());
-app.use(express.json({ limit: '5mb' }));
 
-const limiter = rateLimit({ windowMs: 15*60*1000, max: 100 });
+// REQUIRED FOR RENDER OR ANY PROXY HOST
+app.set("trust proxy", 1);
+
+// Connect to MongoDB
+connectDB();
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+
+// Rate limiter
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 mins
+  max: 200, // Allow 200 requests per window per IP
+  message: { error: "Too many requests, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 app.use(limiter);
 
-app.use('/api/auth', authRoutes);
-app.use('/api/courses', courseRoutes);
-app.use('/api/contact', contactRoutes);
+// Health check
+app.get("/", (req, res) => {
+  res.json({
+    status: "OK",
+    service: "TumiCodes Backend",
+    timestamp: new Date().toISOString(),
+  });
+});
 
-app.get('/', (req, res) => res.json({ status: 'OK', service: 'TumiCodes Backend' }));
+// Import routes
+const authRoutes = require("./routes/authRoutes");
+const courseRoutes = require("./routes/courseRoutes");
+const contactRoutes = require("./routes/contactRoutes");
+const adminRoutes = require("./routes/adminRoutes");
 
-app.use(errorHandler);
+// Route mounting
+app.use("/api/auth", authRoutes);
+app.use("/api/courses", courseRoutes);
+app.use("/api/contact", contactRoutes);
+app.use("/api/admin", adminRoutes);
 
-const PORT = process.env.PORT || 5000;
+// 404 Route
+app.use((req, res, next) => {
+  res.status(404).json({ error: "Route not found" });
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error("SERVER ERROR:", err);
+  res.status(500).json({
+    error: "Internal server error",
+    message: err.message,
+  });
+});
+
+// Server
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
-  // Example: notify admin that server started (non-blocking)
-  if (process.env.ADMIN_CHAT_ID && process.env.TELEGRAM_BOT_TOKEN) {
-    telegram.sendAdmin(`📡 TumiCodes backend started on port ${PORT}`)
-      .catch(() => {});
-  }
 });
