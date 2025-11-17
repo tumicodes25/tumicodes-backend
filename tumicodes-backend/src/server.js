@@ -1,36 +1,39 @@
 import express from "express";
-import dotenv from "dotenv";
 import cors from "cors";
-import rateLimit from "express-rate-limit";
-import connectDB from "./config/db.js";
+import dotenv from "dotenv";
+import mongoose from "mongoose";
+
+// Import routes
 import authRoutes from "./routes/auth.js";
-import courseRoutes from "./routes/courses.js";
+import coursesRoutes from "./routes/courses.js";
 
 dotenv.config();
+
 const app = express();
+const PORT = process.env.PORT || 10000;
 
-// Middleware
-app.use(express.json());
-app.use(cors());
-
-// Trust proxy for Render deployments
+// Trust proxy for proper IP handling on Render
 app.set("trust proxy", 1);
 
-// Rate limiter
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 mins
-  max: 100,
-});
-app.use(limiter);
+// Middleware
+app.use(cors());
+app.use(express.json());
 
 // Routes
 app.use("/api/auth", authRoutes);
-app.use("/api/courses", courseRoutes);
+app.use("/api/courses", coursesRoutes);
 
-// Connect DB & start server
-connectDB();
+// Connect to MongoDB
+mongoose
+  .connect(process.env.MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => console.log("MongoDB connected"))
+  .catch((err) => console.error("MongoDB connection error:", err));
 
-const PORT = process.env.PORT || 10000;
+// Start the server
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
+  console.log(`Available at your primary URL: http://localhost:${PORT}`);
 });
