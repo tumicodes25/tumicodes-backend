@@ -6,23 +6,28 @@ if (!admin.apps.length) {
     credential: admin.credential.cert({
       projectId: process.env.FIREBASE_PROJECT_ID,
       clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n")
+      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
     }),
   });
 }
 
-export default async function authMiddleware(req, res, next) {
+// Middleware to verify Firebase ID token
+const authMiddleware = async (req, res, next) => {
   const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ error: "No token" });
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "No token provided" });
+  }
 
-  const token = authHeader.split(" ")[1];
+  const idToken = authHeader.split(" ")[1];
+
   try {
-    const decoded = await admin.auth().verifyIdToken(token);
-    req.user = decoded;
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
+    req.user = decodedToken;
     next();
   } catch (err) {
-    console.error("Firebase token error:", err);
+    console.error("Token verification failed:", err);
     return res.status(401).json({ error: "Invalid token" });
   }
-}
+};
 
+export default authMiddleware;
