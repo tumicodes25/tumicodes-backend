@@ -1,27 +1,28 @@
-import jwt from "jsonwebtoken";
+import admin from "firebase-admin";
 
-const authMiddleware = (roles = []) => (req, res, next) => {
-  const auth = req.headers.authorization;
+// Initialize Firebase Admin
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n")
+    }),
+  });
+}
 
-  if (!auth) {
-    return res.status(401).json({ error: "No token" });
-  }
+export default async function authMiddleware(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: "No token" });
 
-  const token = auth.split(" ")[1];
-
+  const token = authHeader.split(" ")[1];
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev");
-
+    const decoded = await admin.auth().verifyIdToken(token);
     req.user = decoded;
-
-    if (roles.length && !roles.includes(decoded.role)) {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-
     next();
   } catch (err) {
+    console.error("Firebase token error:", err);
     return res.status(401).json({ error: "Invalid token" });
   }
-};
+}
 
-export default authMiddleware;
