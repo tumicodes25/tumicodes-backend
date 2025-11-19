@@ -3,22 +3,22 @@ import authMiddleware from "../utils/authMiddleware.js";
 
 const router = express.Router();
 
-// LOGIN
+// Login route (for testing, you can connect Firebase frontend here)
 router.post("/login", (req, res) => {
-  res.send("Login route works!");
+  res.json({ status: "ok", message: "Login route works!" });
 });
 
-// REGISTER
+// Register route (for testing, you can connect Firebase frontend here)
 router.post("/register", (req, res) => {
-  res.send("Register route works!");
+  res.json({ status: "ok", message: "Register route works!" });
 });
 
-// VERIFY TOKEN
+// Protected route (dashboard)
 router.get("/verify", authMiddleware, (req, res) => {
   res.status(200).json({
     status: "ok",
     message: "Token valid",
-    user: req.user
+    user: req.user, // Firebase user info from token
   });
 });
 
