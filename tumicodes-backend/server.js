@@ -27,6 +27,16 @@ const io = socketIo(server, {
         credentials: true
     }
 });
+// Add this after creating your Express app
+const app = express();
+
+// Fix for Render proxy (add this line)
+app.set('trust proxy', 1); // Trust first proxy
+
+// Then add your other middleware...
+app.use(cors());
+app.use(express.json());
+
 
 // Security and performance middleware
 app.use(helmet({
@@ -213,5 +223,6 @@ process.on('unhandledRejection', (reason, promise) => {
 if (require.main === module) {
     startServer();
 }
+
 
 module.exports = { app, server, io };
