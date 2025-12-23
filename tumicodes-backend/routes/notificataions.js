@@ -13,4 +13,5 @@ router.delete('/:id', NotificationController.deleteNotification);
 router.get('/preferences', NotificationController.getPreferences);
 router.put('/preferences', NotificationController.updatePreferences);
 
+
 module.exports = router;
