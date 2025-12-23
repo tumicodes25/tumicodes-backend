@@ -1,7 +1,7 @@
 {
   "name": "tumicodes-backend",
   "version": "1.0.0",
-  "description": "TumiCodes Real-time Dashboard Backend with MySQL",
+  "description": "TumiCodes Real-time Dashboard Backend with PostgreSQL",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -9,7 +9,7 @@
     "render-build": "npm install",
     "test": "echo \"No tests specified\" && exit 0"
   },
-  "keywords": ["dashboard", "education", "coding", "real-time", "mysql", "nodejs"],
+  "keywords": ["dashboard", "education", "coding", "real-time", "postgresql", "nodejs"],
   "author": "TumiCodes",
   "license": "MIT",
   "dependencies": {
@@ -18,7 +18,7 @@
     "cors": "^2.8.5",
     "bcryptjs": "^2.4.3",
     "jsonwebtoken": "^9.0.2",
-    "mysql2": "^3.6.0",
+    "pg": "^8.11.0",
     "dotenv": "^16.3.1",
     "helmet": "^7.0.0",
     "compression": "^1.7.4",
