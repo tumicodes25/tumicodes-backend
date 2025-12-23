@@ -1,35 +1,30 @@
-// models/db.js - Database connection and initialization
-const mysql = require('mysql2/promise');
+// models/db.js - Database connection and initialization for PostgreSQL
+const { Pool } = require('pg');
 require('dotenv').config();
 
 let pool;
 
-// Create connection pool
+// Create PostgreSQL connection pool
 function createPool() {
-    pool = mysql.createPool({
-        host: process.env.DB_HOST || 'localhost',
-        port: process.env.DB_PORT || 3306,
-        user: process.env.DB_USER || 'root',
-        password: process.env.DB_PASSWORD || '',
-        database: process.env.DB_NAME || 'tumicodes',
-        waitForConnections: true,
-        connectionLimit: process.env.DB_CONNECTION_LIMIT || 10,
-        queueLimit: 0,
-        enableKeepAlive: true,
-        keepAliveInitialDelay: 0,
-        ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined
+    pool = new Pool({
+        connectionString: process.env.DATABASE_URL,
+        ssl: {
+            rejectUnauthorized: false  // REQUIRED for Render PostgreSQL
+        },
+        max: process.env.DB_CONNECTION_LIMIT || 20,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 5000
     });
 
     // Test connection
-    pool.getConnection()
-        .then(connection => {
-            console.log('✅ Connected to MySQL database');
-            connection.release();
+    pool.connect()
+        .then(client => {
+            console.log('✅ Connected to PostgreSQL database');
+            client.release();
         })
         .catch(error => {
             console.error('❌ Database connection error:', error.message);
-            // Retry connection after 5 seconds
-            setTimeout(createPool, 5000);
+            setTimeout(createPool, 5000); // Retry connection
         });
 
     return pool;
@@ -40,326 +35,310 @@ async function getConnection() {
     if (!pool) {
         pool = createPool();
     }
-    return await pool.getConnection();
+    return await pool.connect();
 }
 
 // Execute query with parameters
 async function executeQuery(sql, params = []) {
-    let connection;
+    let client;
     try {
-        connection = await getConnection();
-        const [results] = await connection.execute(sql, params);
-        return results;
+        client = await getConnection();
+        const result = await client.query(sql, params);
+        return result.rows;
     } catch (error) {
         console.error('Database query error:', error);
         throw error;
     } finally {
-        if (connection) connection.release();
+        if (client) client.release();
     }
 }
 
-// Initialize database tables
+// Initialize database tables for PostgreSQL
 async function initializeDatabase() {
     try {
-        const connection = await getConnection();
+        const client = await getConnection();
         
-        // Create tables
-        await connection.execute(`
+        // Create users table
+        await client.query(`
             CREATE TABLE IF NOT EXISTS users (
-                id INT PRIMARY KEY AUTO_INCREMENT,
+                id SERIAL PRIMARY KEY,
                 email VARCHAR(255) UNIQUE NOT NULL,
                 name VARCHAR(255),
                 password VARCHAR(255) NOT NULL,
-                role ENUM('user', 'admin', 'instructor') DEFAULT 'user',
+                role VARCHAR(50) DEFAULT 'user',
                 avatar_url VARCHAR(500),
                 bio TEXT,
-                xp INT DEFAULT 0,
-                level INT DEFAULT 1,
-                streak INT DEFAULT 0,
-                last_active DATETIME DEFAULT CURRENT_TIMESTAMP,
+                xp INTEGER DEFAULT 0,
+                level INTEGER DEFAULT 1,
+                streak INTEGER DEFAULT 0,
+                last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 email_verified BOOLEAN DEFAULT FALSE,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                INDEX idx_email (email),
-                INDEX idx_role (role),
-                INDEX idx_created_at (created_at)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         `);
 
-        await connection.execute(`
+        // Create courses table
+        await client.query(`
             CREATE TABLE IF NOT EXISTS courses (
-                id INT PRIMARY KEY AUTO_INCREMENT,
+                id SERIAL PRIMARY KEY,
                 title VARCHAR(255) NOT NULL,
                 slug VARCHAR(255) UNIQUE NOT NULL,
                 description TEXT,
                 short_description VARCHAR(500),
                 category VARCHAR(100),
-                difficulty ENUM('beginner', 'intermediate', 'advanced') DEFAULT 'beginner',
+                difficulty VARCHAR(50) DEFAULT 'beginner',
                 price DECIMAL(10, 2) DEFAULT 0.00,
                 discounted_price DECIMAL(10, 2),
                 thumbnail_url VARCHAR(500),
                 video_url VARCHAR(500),
-                duration INT DEFAULT 0, -- in minutes
+                duration INTEGER DEFAULT 0,
                 rating DECIMAL(3, 2) DEFAULT 0.00,
-                total_ratings INT DEFAULT 0,
-                total_students INT DEFAULT 0,
+                total_ratings INTEGER DEFAULT 0,
+                total_students INTEGER DEFAULT 0,
                 is_featured BOOLEAN DEFAULT FALSE,
                 is_published BOOLEAN DEFAULT TRUE,
-                instructor_id INT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                FOREIGN KEY (instructor_id) REFERENCES users(id) ON DELETE SET NULL,
-                INDEX idx_slug (slug),
-                INDEX idx_category (category),
-                INDEX idx_difficulty (difficulty),
-                INDEX idx_is_published (is_published),
-                FULLTEXT idx_search (title, description, short_description)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                instructor_id INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (instructor_id) REFERENCES users(id) ON DELETE SET NULL
+            );
         `);
 
-        await connection.execute(`
+        // Create user_courses table
+        await client.query(`
             CREATE TABLE IF NOT EXISTS user_courses (
-                id INT PRIMARY KEY AUTO_INCREMENT,
-                user_id INT NOT NULL,
-                course_id INT NOT NULL,
-                progress INT DEFAULT 0,
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                course_id INTEGER NOT NULL,
+                progress INTEGER DEFAULT 0,
                 completed BOOLEAN DEFAULT FALSE,
-                current_lesson_id INT,
-                started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                completed_at DATETIME,
-                last_accessed DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                rating INT,
+                current_lesson_id INTEGER,
+                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP,
+                last_accessed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                rating INTEGER,
                 review TEXT,
-                UNIQUE KEY unique_user_course (user_id, course_id),
+                UNIQUE(user_id, course_id),
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
-                INDEX idx_user_id (user_id),
-                INDEX idx_course_id (course_id),
-                INDEX idx_completed (completed)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
+            );
         `);
 
-        await connection.execute(`
+        // Create lessons table
+        await client.query(`
             CREATE TABLE IF NOT EXISTS lessons (
-                id INT PRIMARY KEY AUTO_INCREMENT,
-                course_id INT NOT NULL,
+                id SERIAL PRIMARY KEY,
+                course_id INTEGER NOT NULL,
                 title VARCHAR(255) NOT NULL,
                 slug VARCHAR(255) NOT NULL,
-                content LONGTEXT,
+                content TEXT,
                 video_url VARCHAR(500),
-                duration INT DEFAULT 0,
-                sort_order INT DEFAULT 0,
+                duration INTEGER DEFAULT 0,
+                sort_order INTEGER DEFAULT 0,
                 is_free BOOLEAN DEFAULT FALSE,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
-                UNIQUE KEY unique_course_lesson (course_id, slug),
-                INDEX idx_course_id (course_id),
-                INDEX idx_sort_order (sort_order)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                UNIQUE(course_id, slug)
+            );
         `);
 
-        await connection.execute(`
+        // Create certificates table
+        await client.query(`
             CREATE TABLE IF NOT EXISTS certificates (
-                id INT PRIMARY KEY AUTO_INCREMENT,
-                user_id INT NOT NULL,
-                course_id INT NOT NULL,
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                course_id INTEGER NOT NULL,
                 certificate_id VARCHAR(100) UNIQUE NOT NULL,
                 full_name VARCHAR(255) NOT NULL,
                 course_title VARCHAR(255) NOT NULL,
-                issue_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-                expiry_date DATETIME,
+                issue_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expiry_date TIMESTAMP,
                 download_url VARCHAR(500),
                 verification_url VARCHAR(500),
                 is_verified BOOLEAN DEFAULT TRUE,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
-                INDEX idx_user_id (user_id),
-                INDEX idx_certificate_id (certificate_id),
-                INDEX idx_issue_date (issue_date)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
+            );
         `);
 
-        await connection.execute(`
+        // Create projects table
+        await client.query(`
             CREATE TABLE IF NOT EXISTS projects (
-                id INT PRIMARY KEY AUTO_INCREMENT,
-                user_id INT NOT NULL,
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
                 title VARCHAR(255) NOT NULL,
                 slug VARCHAR(255) UNIQUE NOT NULL,
                 description TEXT,
                 thumbnail_url VARCHAR(500),
                 github_url VARCHAR(500),
                 live_url VARCHAR(500),
-                tags JSON,
-                status ENUM('planning', 'in_progress', 'completed', 'archived') DEFAULT 'planning',
-                progress INT DEFAULT 0,
+                tags JSONB,
+                status VARCHAR(50) DEFAULT 'planning',
+                progress INTEGER DEFAULT 0,
                 is_public BOOLEAN DEFAULT TRUE,
-                views_count INT DEFAULT 0,
-                likes_count INT DEFAULT 0,
-                collaborators JSON,
-                started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                completed_at DATETIME,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                INDEX idx_user_id (user_id),
-                INDEX idx_status (status),
-                INDEX idx_slug (slug),
-                FULLTEXT idx_project_search (title, description)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                views_count INTEGER DEFAULT 0,
+                likes_count INTEGER DEFAULT 0,
+                collaborators JSONB,
+                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
         `);
 
-        await connection.execute(`
+        // Create notifications table
+        await client.query(`
             CREATE TABLE IF NOT EXISTS notifications (
-                id INT PRIMARY KEY AUTO_INCREMENT,
-                user_id INT NOT NULL,
-                type ENUM('info', 'success', 'warning', 'error', 'course', 'certificate', 'project', 'payment', 'system') DEFAULT 'info',
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                type VARCHAR(50) DEFAULT 'info',
                 title VARCHAR(255) NOT NULL,
                 message TEXT NOT NULL,
                 icon VARCHAR(50),
-                data JSON,
+                data JSONB,
                 is_read BOOLEAN DEFAULT FALSE,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                read_at DATETIME,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                INDEX idx_user_id (user_id),
-                INDEX idx_is_read (is_read),
-                INDEX idx_created_at (created_at),
-                INDEX idx_type (type)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                read_at TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
         `);
 
-        await connection.execute(`
+        // Create payments table
+        await client.query(`
             CREATE TABLE IF NOT EXISTS payments (
-                id INT PRIMARY KEY AUTO_INCREMENT,
-                user_id INT NOT NULL,
-                course_id INT,
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                course_id INTEGER,
                 amount DECIMAL(10, 2) NOT NULL,
                 currency VARCHAR(10) DEFAULT 'USD',
-                status ENUM('pending', 'completed', 'failed', 'refunded') DEFAULT 'pending',
+                status VARCHAR(50) DEFAULT 'pending',
                 payment_method VARCHAR(50),
                 payment_gateway VARCHAR(50),
                 transaction_id VARCHAR(100) UNIQUE,
-                gateway_response JSON,
-                metadata JSON,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                gateway_response JSONB,
+                metadata JSONB,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE SET NULL,
-                INDEX idx_user_id (user_id),
-                INDEX idx_status (status),
-                INDEX idx_transaction_id (transaction_id),
-                INDEX idx_created_at (created_at)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE SET NULL
+            );
         `);
 
-        await connection.execute(`
+        // Create user_skills table
+        await client.query(`
             CREATE TABLE IF NOT EXISTS user_skills (
-                id INT PRIMARY KEY AUTO_INCREMENT,
-                user_id INT NOT NULL,
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
                 skill_name VARCHAR(100) NOT NULL,
-                skill_level INT DEFAULT 0,
+                skill_level INTEGER DEFAULT 0,
                 experience_years DECIMAL(3, 1) DEFAULT 0,
-                projects_count INT DEFAULT 0,
+                projects_count INTEGER DEFAULT 0,
                 is_verified BOOLEAN DEFAULT FALSE,
-                verified_by INT,
-                verified_at DATETIME,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                verified_by INTEGER,
+                verified_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY (verified_by) REFERENCES users(id) ON DELETE SET NULL,
-                UNIQUE KEY unique_user_skill (user_id, skill_name),
-                INDEX idx_user_id (user_id),
-                INDEX idx_skill_name (skill_name)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                UNIQUE(user_id, skill_name)
+            );
         `);
 
-        await connection.execute(`
+        // Create achievements table
+        await client.query(`
             CREATE TABLE IF NOT EXISTS achievements (
-                id INT PRIMARY KEY AUTO_INCREMENT,
-                user_id INT NOT NULL,
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
                 name VARCHAR(255) NOT NULL,
                 description TEXT,
                 icon VARCHAR(50),
-                points INT DEFAULT 0,
+                points INTEGER DEFAULT 0,
                 category VARCHAR(50),
-                earned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                INDEX idx_user_id (user_id),
-                INDEX idx_category (category)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                earned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
         `);
 
-        await connection.execute(`
+        // Create activities table
+        await client.query(`
             CREATE TABLE IF NOT EXISTS activities (
-                id INT PRIMARY KEY AUTO_INCREMENT,
-                user_id INT NOT NULL,
-                type ENUM('course_started', 'course_completed', 'certificate_earned', 'project_created', 'project_completed', 'payment_made', 'skill_added', 'achievement_earned', 'login', 'profile_updated') NOT NULL,
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                type VARCHAR(50) NOT NULL,
                 title VARCHAR(255) NOT NULL,
                 description TEXT,
-                reference_id INT,
+                reference_id INTEGER,
                 reference_type VARCHAR(50),
-                metadata JSON,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                INDEX idx_user_id (user_id),
-                INDEX idx_type (type),
-                INDEX idx_created_at (created_at)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                metadata JSONB,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
         `);
 
-        await connection.execute(`
+        // Create chat_messages table
+        await client.query(`
             CREATE TABLE IF NOT EXISTS chat_messages (
-                id INT PRIMARY KEY AUTO_INCREMENT,
-                user_id INT NOT NULL,
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
                 message TEXT NOT NULL,
                 response TEXT,
                 is_ai BOOLEAN DEFAULT FALSE,
-                tokens_used INT DEFAULT 0,
+                tokens_used INTEGER DEFAULT 0,
                 model VARCHAR(50),
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                INDEX idx_user_id (user_id),
-                INDEX idx_created_at (created_at),
-                INDEX idx_is_ai (is_ai)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
         `);
 
-        await connection.execute(`
+        // Create user_sessions table
+        await client.query(`
             CREATE TABLE IF NOT EXISTS user_sessions (
-                id INT PRIMARY KEY AUTO_INCREMENT,
-                user_id INT NOT NULL,
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
                 session_token VARCHAR(255) UNIQUE NOT NULL,
                 ip_address VARCHAR(45),
                 user_agent TEXT,
-                expires_at DATETIME NOT NULL,
-                last_activity DATETIME DEFAULT CURRENT_TIMESTAMP,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                INDEX idx_user_id (user_id),
-                INDEX idx_session_token (session_token),
-                INDEX idx_expires_at (expires_at)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                expires_at TIMESTAMP NOT NULL,
+                last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
         `);
 
-        await connection.execute(`
+        // Create course_categories table
+        await client.query(`
             CREATE TABLE IF NOT EXISTS course_categories (
-                id INT PRIMARY KEY AUTO_INCREMENT,
+                id SERIAL PRIMARY KEY,
                 name VARCHAR(100) NOT NULL,
                 slug VARCHAR(100) UNIQUE NOT NULL,
                 description TEXT,
                 icon VARCHAR(50),
                 color VARCHAR(20),
-                sort_order INT DEFAULT 0,
+                sort_order INTEGER DEFAULT 0,
                 is_active BOOLEAN DEFAULT TRUE,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_slug (slug),
-                INDEX idx_is_active (is_active)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         `);
 
-        // Insert default categories
+        // Create indexes for performance
+        await client.query('CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);');
+        await client.query('CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);');
+        await client.query('CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at);');
+        await client.query('CREATE INDEX IF NOT EXISTS idx_courses_slug ON courses(slug);');
+        await client.query('CREATE INDEX IF NOT EXISTS idx_courses_category ON courses(category);');
+        await client.query('CREATE INDEX IF NOT EXISTS idx_courses_is_published ON courses(is_published);');
+        await client.query('CREATE INDEX IF NOT EXISTS idx_user_courses_user_id ON user_courses(user_id);');
+        await client.query('CREATE INDEX IF NOT EXISTS idx_user_courses_completed ON user_courses(completed);');
+        await client.query('CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);');
+        await client.query('CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);');
+        await client.query('CREATE INDEX IF NOT EXISTS idx_activities_user_id ON activities(user_id);');
+        await client.query('CREATE INDEX IF NOT EXISTS idx_activities_created_at ON activities(created_at);');
+
+        // Insert default categories (using ON CONFLICT for PostgreSQL)
         const categories = [
             ['Web Development', 'web-development', 'Learn to build modern websites and web applications', 'code', '#FF003C', 1],
             ['Mobile Development', 'mobile-development', 'Build iOS and Android applications', 'mobile', '#00D4FF', 2],
@@ -370,8 +349,10 @@ async function initializeDatabase() {
         ];
 
         for (const [name, slug, description, icon, color, order] of categories) {
-            await connection.execute(
-                'INSERT IGNORE INTO course_categories (name, slug, description, icon, color, sort_order) VALUES (?, ?, ?, ?, ?, ?)',
+            await client.query(
+                `INSERT INTO course_categories (name, slug, description, icon, color, sort_order) 
+                 VALUES ($1, $2, $3, $4, $5, $6) 
+                 ON CONFLICT (slug) DO NOTHING`,
                 [name, slug, description, icon, color, order]
             );
         }
@@ -380,37 +361,34 @@ async function initializeDatabase() {
         const adminEmail = process.env.ADMIN_EMAIL || 'tumicodes@gmail.com';
         const adminPassword = process.env.ADMIN_PASSWORD || 'tumicodes25';
         
-        const [existingAdmin] = await connection.execute(
-            'SELECT id FROM users WHERE email = ?',
+        const adminResult = await client.query(
+            'SELECT id FROM users WHERE email = $1',
             [adminEmail]
         );
 
-        if (existingAdmin.length === 0) {
+        if (adminResult.rows.length === 0) {
             const bcrypt = require('bcryptjs');
             const hashedPassword = await bcrypt.hash(adminPassword, 12);
             
-            await connection.execute(
-                'INSERT INTO users (email, name, password, role, email_verified) VALUES (?, ?, ?, ?, ?)',
+            const insertResult = await client.query(
+                'INSERT INTO users (email, name, password, role, email_verified) VALUES ($1, $2, $3, $4, $5) RETURNING id',
                 [adminEmail, 'TumiCodes Admin', hashedPassword, 'admin', true]
             );
             
-            const [adminUser] = await connection.execute(
-                'SELECT id FROM users WHERE email = ?',
-                [adminEmail]
-            );
+            const adminId = insertResult.rows[0].id;
             
             // Add admin achievements
-            await connection.execute(
-                'INSERT INTO achievements (user_id, name, description, icon, points, category) VALUES (?, ?, ?, ?, ?, ?)',
-                [adminUser[0].id, 'Founding Member', 'Joined TumiCodes as an admin', 'crown', 1000, 'special']
+            await client.query(
+                'INSERT INTO achievements (user_id, name, description, icon, points, category) VALUES ($1, $2, $3, $4, $5, $6)',
+                [adminId, 'Founding Member', 'Joined TumiCodes as an admin', 'crown', 1000, 'special']
             );
             
             console.log('✅ Admin user created successfully');
         }
 
         // Insert sample courses if none exist
-        const [courseCount] = await connection.execute('SELECT COUNT(*) as count FROM courses');
-        if (courseCount[0].count === 0) {
+        const courseResult = await client.query('SELECT COUNT(*) as count FROM courses');
+        if (parseInt(courseResult.rows[0].count) === 0) {
             const sampleCourses = [
                 [
                     'Complete Web Development Bootcamp 2024',
@@ -472,20 +450,20 @@ async function initializeDatabase() {
             ];
 
             for (const course of sampleCourses) {
-                await connection.execute(
+                await client.query(
                     `INSERT INTO courses (
                         title, slug, description, short_description, category, difficulty, 
                         price, discounted_price, thumbnail_url, video_url, duration, 
                         rating, total_ratings, total_students, is_featured, is_published, instructor_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
                     course
                 );
             }
             console.log('✅ Sample courses created');
         }
 
-        console.log('✅ Database tables created successfully');
-        connection.release();
+        console.log('✅ PostgreSQL database tables created successfully');
+        client.release();
     } catch (error) {
         console.error('❌ Database initialization error:', error);
         throw error;
