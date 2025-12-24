@@ -1,4 +1,4 @@
-// routes/user.js - User routes
+// routes/user.js - User routes for PostgreSQL
 const express = require('express');
 const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
@@ -7,14 +7,14 @@ const { executeQuery } = require('../models/db');
 // Get user profile
 router.get('/profile', authenticateToken, async (req, res) => {
     try {
-        const [users] = await executeQuery(
+        const users = await executeQuery(
             `SELECT id, email, name, role, avatar_url, bio, xp, level, streak, 
                     last_active, created_at, updated_at 
-             FROM users WHERE id = ?`,
+             FROM users WHERE id = $1`,
             [req.user.id]
         );
         
-        if (users.length === 0) {
+        if (!users || users.length === 0) {
             return res.status(404).json({
                 error: 'User not found',
                 code: 'USER_NOT_FOUND'
@@ -39,20 +39,24 @@ router.put('/profile', authenticateToken, async (req, res) => {
         // Build update query
         const updates = [];
         const params = [];
+        let paramIndex = 1;
         
         if (name !== undefined) {
-            updates.push('name = ?');
+            updates.push(`name = $${paramIndex}`);
             params.push(name);
+            paramIndex++;
         }
         
         if (bio !== undefined) {
-            updates.push('bio = ?');
+            updates.push(`bio = $${paramIndex}`);
             params.push(bio);
+            paramIndex++;
         }
         
         if (avatar_url !== undefined) {
-            updates.push('avatar_url = ?');
+            updates.push(`avatar_url = $${paramIndex}`);
             params.push(avatar_url);
+            paramIndex++;
         }
         
         if (updates.length === 0) {
@@ -65,21 +69,21 @@ router.put('/profile', authenticateToken, async (req, res) => {
         params.push(req.user.id);
         
         await executeQuery(
-            `UPDATE users SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+            `UPDATE users SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = $${paramIndex}`,
             params
         );
         
         // Create activity
         await executeQuery(
-            'INSERT INTO activities (user_id, type, title) VALUES (?, ?, ?)',
+            'INSERT INTO activities (user_id, type, title) VALUES ($1, $2, $3)',
             [req.user.id, 'profile_updated', 'Profile updated']
         );
         
         // Get updated user
-        const [users] = await executeQuery(
+        const users = await executeQuery(
             `SELECT id, email, name, role, avatar_url, bio, xp, level, streak, 
                     last_active, created_at, updated_at 
-             FROM users WHERE id = ?`,
+             FROM users WHERE id = $1`,
             [req.user.id]
         );
         
@@ -107,28 +111,29 @@ router.get('/notifications', authenticateToken, async (req, res) => {
         const { limit = 50, offset = 0, unread_only = false } = req.query;
         
         let query = `SELECT id, type, title, message, icon, data, is_read, created_at, read_at 
-                     FROM notifications WHERE user_id = ?`;
+                     FROM notifications WHERE user_id = $1`;
         const params = [req.user.id];
+        let paramIndex = 2;
         
         if (unread_only === 'true') {
-            query += ' AND is_read = FALSE';
+            query += ` AND is_read = false`;
         }
         
-        query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+        query += ` ORDER BY created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
         params.push(parseInt(limit), parseInt(offset));
         
-        const [notifications] = await executeQuery(query, params);
+        const notifications = await executeQuery(query, params);
         
         // Get unread count
-        const [unreadCount] = await executeQuery(
-            'SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND is_read = FALSE',
+        const unreadCount = await executeQuery(
+            'SELECT COUNT(*) as count FROM notifications WHERE user_id = $1 AND is_read = false',
             [req.user.id]
         );
         
         res.json({
-            notifications,
-            unread_count: unreadCount[0].count,
-            total: notifications.length
+            notifications: notifications || [],
+            unread_count: unreadCount[0]?.count || 0,
+            total: notifications?.length || 0
         });
     } catch (error) {
         console.error('Get notifications error:', error);
@@ -143,7 +148,7 @@ router.get('/notifications', authenticateToken, async (req, res) => {
 router.post('/notifications/:id/read', authenticateToken, async (req, res) => {
     try {
         await executeQuery(
-            'UPDATE notifications SET is_read = TRUE, read_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?',
+            'UPDATE notifications SET is_read = true, read_at = CURRENT_TIMESTAMP WHERE id = $1 AND user_id = $2',
             [req.params.id, req.user.id]
         );
         
@@ -168,7 +173,7 @@ router.post('/notifications/:id/read', authenticateToken, async (req, res) => {
 router.post('/notifications/read-all', authenticateToken, async (req, res) => {
     try {
         await executeQuery(
-            'UPDATE notifications SET is_read = TRUE, read_at = CURRENT_TIMESTAMP WHERE user_id = ? AND is_read = FALSE',
+            'UPDATE notifications SET is_read = true, read_at = CURRENT_TIMESTAMP WHERE user_id = $1 AND is_read = false',
             [req.user.id]
         );
         
@@ -194,16 +199,16 @@ router.get('/activities', authenticateToken, async (req, res) => {
     try {
         const { limit = 20, offset = 0 } = req.query;
         
-        const [activities] = await executeQuery(
+        const activities = await executeQuery(
             `SELECT id, type, title, description, reference_id, reference_type, metadata, created_at 
              FROM activities 
-             WHERE user_id = ? 
+             WHERE user_id = $1 
              ORDER BY created_at DESC 
-             LIMIT ? OFFSET ?`,
+             LIMIT $2 OFFSET $3`,
             [req.user.id, parseInt(limit), parseInt(offset)]
         );
         
-        res.json(activities);
+        res.json(activities || []);
     } catch (error) {
         console.error('Get activities error:', error);
         res.status(500).json({
@@ -225,22 +230,23 @@ router.get('/courses', authenticateToken, async (req, res) => {
                    uc.rating as user_rating, uc.review as user_review
             FROM user_courses uc
             JOIN courses c ON uc.course_id = c.id
-            WHERE uc.user_id = ? AND c.is_published = TRUE
+            WHERE uc.user_id = $1 AND c.is_published = true
         `;
         
         const params = [req.user.id];
+        let paramIndex = 2;
         
         if (status === 'active') {
-            query += ' AND uc.completed = FALSE';
+            query += ` AND uc.completed = false`;
         } else if (status === 'completed') {
-            query += ' AND uc.completed = TRUE';
+            query += ` AND uc.completed = true`;
         }
         
         query += ' ORDER BY uc.last_accessed DESC';
         
-        const [courses] = await executeQuery(query, params);
+        const courses = await executeQuery(query, params);
         
-        res.json(courses);
+        res.json(courses || []);
     } catch (error) {
         console.error('Get user courses error:', error);
         res.status(500).json({
@@ -260,26 +266,28 @@ router.get('/projects', authenticateToken, async (req, res) => {
                    tags, status, progress, is_public, views_count, likes_count,
                    collaborators, started_at, completed_at, created_at, updated_at
             FROM projects
-            WHERE user_id = ?
+            WHERE user_id = $1
         `;
         
         const params = [req.user.id];
+        let paramIndex = 2;
         
         if (status !== 'all') {
-            query += ' AND status = ?';
+            query += ` AND status = $${paramIndex}`;
             params.push(status);
+            paramIndex++;
         }
         
-        query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+        query += ` ORDER BY created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
         params.push(parseInt(limit), parseInt(offset));
         
-        const [projects] = await executeQuery(query, params);
+        const projects = await executeQuery(query, params);
         
-        // Parse JSON fields
-        const parsedProjects = projects.map(project => ({
+        // Parse JSONB fields (PostgreSQL uses JSONB, returns as objects)
+        const parsedProjects = (projects || []).map(project => ({
             ...project,
-            tags: project.tags ? JSON.parse(project.tags) : [],
-            collaborators: project.collaborators ? JSON.parse(project.collaborators) : []
+            tags: project.tags || [],
+            collaborators: project.collaborators || []
         }));
         
         res.json(parsedProjects);
@@ -295,19 +303,19 @@ router.get('/projects', authenticateToken, async (req, res) => {
 // Get user certificates
 router.get('/certificates', authenticateToken, async (req, res) => {
     try {
-        const [certificates] = await executeQuery(
+        const certificates = await executeQuery(
             `SELECT c.id, c.certificate_id, c.full_name, c.course_title, 
                     c.issue_date, c.expiry_date, c.download_url, c.verification_url,
                     c.is_verified, c.created_at,
                     cr.title as course_title_full, cr.slug as course_slug
              FROM certificates c
              LEFT JOIN courses cr ON c.course_id = cr.id
-             WHERE c.user_id = ?
+             WHERE c.user_id = $1
              ORDER BY c.issue_date DESC`,
             [req.user.id]
         );
         
-        res.json(certificates);
+        res.json(certificates || []);
     } catch (error) {
         console.error('Get certificates error:', error);
         res.status(500).json({
@@ -324,44 +332,46 @@ router.get('/stats', authenticateToken, async (req, res) => {
         
         // Get counts in parallel
         const [
-            [coursesCount],
-            [activeCoursesCount],
-            [completedCoursesCount],
-            [projectsCount],
-            [certificatesCount],
-            [achievementsCount]
+            coursesCount,
+            activeCoursesCount,
+            completedCoursesCount,
+            projectsCount,
+            certificatesCount,
+            achievementsCount
         ] = await Promise.all([
-            executeQuery('SELECT COUNT(*) as count FROM user_courses WHERE user_id = ?', [userId]),
-            executeQuery('SELECT COUNT(*) as count FROM user_courses WHERE user_id = ? AND completed = FALSE', [userId]),
-            executeQuery('SELECT COUNT(*) as count FROM user_courses WHERE user_id = ? AND completed = TRUE', [userId]),
-            executeQuery('SELECT COUNT(*) as count FROM projects WHERE user_id = ?', [userId]),
-            executeQuery('SELECT COUNT(*) as count FROM certificates WHERE user_id = ?', [userId]),
-            executeQuery('SELECT COUNT(*) as count FROM achievements WHERE user_id = ?', [userId])
+            executeQuery('SELECT COUNT(*) as count FROM user_courses WHERE user_id = $1', [userId]),
+            executeQuery('SELECT COUNT(*) as count FROM user_courses WHERE user_id = $1 AND completed = false', [userId]),
+            executeQuery('SELECT COUNT(*) as count FROM user_courses WHERE user_id = $1 AND completed = true', [userId]),
+            executeQuery('SELECT COUNT(*) as count FROM projects WHERE user_id = $1', [userId]),
+            executeQuery('SELECT COUNT(*) as count FROM certificates WHERE user_id = $1', [userId]),
+            executeQuery('SELECT COUNT(*) as count FROM achievements WHERE user_id = $1', [userId])
         ]);
         
         // Get XP and level
-        const [user] = await executeQuery(
-            'SELECT xp, level, streak FROM users WHERE id = ?',
+        const user = await executeQuery(
+            'SELECT xp, level, streak FROM users WHERE id = $1',
             [userId]
         );
         
         // Calculate XP needed for next level
-        const xpForNextLevel = (user[0].level * 1000);
-        const currentLevelXP = user[0].xp % 1000;
+        const userLevel = user[0]?.level || 1;
+        const userXP = user[0]?.xp || 0;
+        const xpForNextLevel = (userLevel * 1000);
+        const currentLevelXP = userXP % 1000;
         const xpProgress = Math.min((currentLevelXP / 1000) * 100, 100);
         
         res.json({
             courses: {
-                total: coursesCount[0].count,
-                active: activeCoursesCount[0].count,
-                completed: completedCoursesCount[0].count
+                total: coursesCount[0]?.count || 0,
+                active: activeCoursesCount[0]?.count || 0,
+                completed: completedCoursesCount[0]?.count || 0
             },
-            projects: projectsCount[0].count,
-            certificates: certificatesCount[0].count,
-            achievements: achievementsCount[0].count,
-            xp: user[0].xp,
-            level: user[0].level,
-            streak: user[0].streak,
+            projects: projectsCount[0]?.count || 0,
+            certificates: certificatesCount[0]?.count || 0,
+            achievements: achievementsCount[0]?.count || 0,
+            xp: userXP,
+            level: userLevel,
+            streak: user[0]?.streak || 0,
             xp_progress: xpProgress,
             xp_for_next_level: xpForNextLevel
         });
@@ -377,16 +387,16 @@ router.get('/stats', authenticateToken, async (req, res) => {
 // Get user skills
 router.get('/skills', authenticateToken, async (req, res) => {
     try {
-        const [skills] = await executeQuery(
+        const skills = await executeQuery(
             `SELECT id, skill_name, skill_level, experience_years, projects_count, 
                     is_verified, verified_at, created_at, updated_at
              FROM user_skills 
-             WHERE user_id = ?
+             WHERE user_id = $1
              ORDER BY skill_level DESC, created_at DESC`,
             [req.user.id]
         );
         
-        res.json(skills);
+        res.json(skills || []);
     } catch (error) {
         console.error('Get skills error:', error);
         res.status(500).json({
@@ -409,22 +419,22 @@ router.post('/skills', authenticateToken, async (req, res) => {
         }
         
         // Check if skill already exists
-        const [existing] = await executeQuery(
-            'SELECT id FROM user_skills WHERE user_id = ? AND skill_name = ?',
+        const existing = await executeQuery(
+            'SELECT id FROM user_skills WHERE user_id = $1 AND skill_name = $2',
             [req.user.id, skill_name]
         );
         
         if (existing.length > 0) {
             // Update existing skill
             await executeQuery(
-                `UPDATE user_skills SET skill_level = ?, experience_years = ?, 
-                 updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+                `UPDATE user_skills SET skill_level = $1, experience_years = $2, 
+                 updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
                 [skill_level, experience_years || 0, existing[0].id]
             );
             
             // Get updated skill
-            const [skills] = await executeQuery(
-                'SELECT * FROM user_skills WHERE id = ?',
+            const skills = await executeQuery(
+                'SELECT * FROM user_skills WHERE id = $1',
                 [existing[0].id]
             );
             
@@ -439,21 +449,23 @@ router.post('/skills', authenticateToken, async (req, res) => {
             });
         } else {
             // Insert new skill
-            const [result] = await executeQuery(
+            const result = await executeQuery(
                 `INSERT INTO user_skills (user_id, skill_name, skill_level, experience_years) 
-                 VALUES (?, ?, ?, ?)`,
+                 VALUES ($1, $2, $3, $4) RETURNING id`,
                 [req.user.id, skill_name, skill_level, experience_years || 0]
             );
             
+            const newId = result[0]?.id;
+            
             // Get new skill
-            const [skills] = await executeQuery(
-                'SELECT * FROM user_skills WHERE id = ?',
-                [result.insertId]
+            const skills = await executeQuery(
+                'SELECT * FROM user_skills WHERE id = $1',
+                [newId]
             );
             
             // Create activity
             await executeQuery(
-                'INSERT INTO activities (user_id, type, title, description) VALUES (?, ?, ?, ?)',
+                'INSERT INTO activities (user_id, type, title, description) VALUES ($1, $2, $3, $4)',
                 [req.user.id, 'skill_added', 'Skill added', `Added skill: ${skill_name} (Level ${skill_level})`]
             );
             
@@ -490,7 +502,7 @@ router.post('/ai/chat', authenticateToken, async (req, res) => {
         
         // Save user message
         await executeQuery(
-            'INSERT INTO chat_messages (user_id, message, is_ai) VALUES (?, ?, FALSE)',
+            'INSERT INTO chat_messages (user_id, message, is_ai) VALUES ($1, $2, false)',
             [req.user.id, message.trim()]
         );
         
@@ -513,7 +525,7 @@ router.post('/ai/chat', authenticateToken, async (req, res) => {
         
         // Save AI response
         await executeQuery(
-            'INSERT INTO chat_messages (user_id, message, is_ai) VALUES (?, ?, TRUE)',
+            'INSERT INTO chat_messages (user_id, message, is_ai) VALUES ($1, $2, true)',
             [req.user.id, aiResponse]
         );
         
@@ -526,6 +538,33 @@ router.post('/ai/chat', authenticateToken, async (req, res) => {
         res.status(500).json({
             error: 'AI service unavailable',
             code: 'AI_SERVICE_UNAVAILABLE'
+        });
+    }
+});
+
+// IMPORTANT: Add this root route for /api/user
+router.get('/', authenticateToken, async (req, res) => {
+    try {
+        const users = await executeQuery(
+            `SELECT id, email, name, role, avatar_url, bio, xp, level, streak, 
+                    last_active, created_at, updated_at 
+             FROM users WHERE id = $1`,
+            [req.user.id]
+        );
+        
+        if (!users || users.length === 0) {
+            return res.status(404).json({
+                error: 'User not found',
+                code: 'USER_NOT_FOUND'
+            });
+        }
+        
+        res.json(users[0]);
+    } catch (error) {
+        console.error('Get user error:', error);
+        res.status(500).json({
+            error: 'Failed to get user',
+            code: 'USER_FETCH_FAILED'
         });
     }
 });
