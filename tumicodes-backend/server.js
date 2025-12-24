@@ -16,27 +16,14 @@ const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/user');
 const adminRoutes = require('./routes/admin');
 const courseRoutes = require('./routes/courses');
+const paymentRoutes = require('./routes/payments');
+const notificationRoutes = require('./routes/notifications');
 
-// Initialize Express app
-const app = express();
-const server = http.createServer(app);
-const io = socketIo(server, {
-    cors: {
-        origin: process.env.FRONTEND_URL || "http://localhost:3000",
-        methods: ["GET", "POST", "PUT", "DELETE"],
-        credentials: true
-    }
-});
-// Add this after creating your Express app
+// Initialize Express app - ONLY ONCE
 const app = express();
 
 // Fix for Render proxy (add this line)
 app.set('trust proxy', 1); // Trust first proxy
-
-// Then add your other middleware...
-app.use(cors());
-app.use(express.json());
-
 
 // Security and performance middleware
 app.use(helmet({
@@ -87,6 +74,18 @@ app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/courses', courseRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/notifications', notificationRoutes);
+
+// Create HTTP server and Socket.io
+const server = http.createServer(app);
+const io = socketIo(server, {
+    cors: {
+        origin: process.env.FRONTEND_URL || "http://localhost:3000",
+        methods: ["GET", "POST", "PUT", "DELETE"],
+        credentials: true
+    }
+});
 
 // WebSocket handling
 const userSockets = new Map();
@@ -176,14 +175,6 @@ app.use((err, req, res, next) => {
     });
 });
 
-// Add these imports at the top
-const paymentRoutes = require('./routes/payments');
-const notificationRoutes = require('./routes/notifications');
-
-// Add these after other route declarations
-app.use('/api/payments', paymentRoutes);
-app.use('/api/notifications', notificationRoutes);
-
 // Initialize database and start server
 const PORT = process.env.PORT || 3000;
 
@@ -223,6 +214,5 @@ process.on('unhandledRejection', (reason, promise) => {
 if (require.main === module) {
     startServer();
 }
-
 
 module.exports = { app, server, io };
