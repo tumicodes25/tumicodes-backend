@@ -1,4 +1,4 @@
-// routes/courses.js - Course routes
+// routes/courses.js - Course routes for PostgreSQL
 const express = require('express');
 const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
@@ -26,28 +26,33 @@ router.get('/', async (req, res) => {
                    rating, total_ratings, total_students, is_featured,
                    created_at, updated_at
             FROM courses
-            WHERE is_published = TRUE
+            WHERE is_published = true
         `;
         
         const params = [];
+        let paramIndex = 1;
         
         if (category) {
-            query += ' AND category = ?';
+            query += ` AND category = $${paramIndex}`;
             params.push(category);
+            paramIndex++;
         }
         
         if (difficulty) {
-            query += ' AND difficulty = ?';
+            query += ` AND difficulty = $${paramIndex}`;
             params.push(difficulty);
+            paramIndex++;
         }
         
         if (search) {
-            query += ' AND (title LIKE ? OR short_description LIKE ? OR category LIKE ?)';
+            query += ` AND (title LIKE $${paramIndex} OR short_description LIKE $${paramIndex + 1} OR category LIKE $${paramIndex + 2})`;
             params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+            paramIndex += 3;
         }
         
-        query += ' AND price BETWEEN ? AND ?';
+        query += ` AND price BETWEEN $${paramIndex} AND $${paramIndex + 1}`;
         params.push(min_price, max_price);
+        paramIndex += 2;
         
         // Sorting
         switch(sort) {
@@ -69,38 +74,42 @@ router.get('/', async (req, res) => {
                 break;
         }
         
-        query += ' LIMIT ? OFFSET ?';
+        query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
         params.push(parseInt(limit), parseInt(offset));
         
-        const [courses] = await executeQuery(query, params);
+        const courses = await executeQuery(query, params);
         
         // Get total count
-        let countQuery = 'SELECT COUNT(*) as total FROM courses WHERE is_published = TRUE';
+        let countQuery = 'SELECT COUNT(*) as total FROM courses WHERE is_published = true';
         const countParams = [];
+        let countParamIndex = 1;
         
         if (category) {
-            countQuery += ' AND category = ?';
+            countQuery += ` AND category = $${countParamIndex}`;
             countParams.push(category);
+            countParamIndex++;
         }
         
         if (difficulty) {
-            countQuery += ' AND difficulty = ?';
+            countQuery += ` AND difficulty = $${countParamIndex}`;
             countParams.push(difficulty);
+            countParamIndex++;
         }
         
         if (search) {
-            countQuery += ' AND (title LIKE ? OR short_description LIKE ? OR category LIKE ?)';
+            countQuery += ` AND (title LIKE $${countParamIndex} OR short_description LIKE $${countParamIndex + 1} OR category LIKE $${countParamIndex + 2})`;
             countParams.push(`%${search}%`, `%${search}%`, `%${search}%`);
+            countParamIndex += 3;
         }
         
-        countQuery += ' AND price BETWEEN ? AND ?';
+        countQuery += ` AND price BETWEEN $${countParamIndex} AND $${countParamIndex + 1}`;
         countParams.push(min_price, max_price);
         
-        const [countResult] = await executeQuery(countQuery, countParams);
+        const countResult = await executeQuery(countQuery, countParams);
         
         // Get categories for filters
-        const [categories] = await executeQuery(
-            'SELECT DISTINCT category FROM courses WHERE is_published = TRUE ORDER BY category'
+        const categories = await executeQuery(
+            'SELECT DISTINCT category FROM courses WHERE is_published = true ORDER BY category'
         );
         
         res.json({
@@ -119,8 +128,8 @@ router.get('/', async (req, res) => {
             pagination: {
                 page: parseInt(page),
                 limit: parseInt(limit),
-                total: countResult[0].total,
-                pages: Math.ceil(countResult[0].total / limit)
+                total: countResult[0]?.total || 0,
+                pages: Math.ceil((countResult[0]?.total || 0) / limit)
             }
         });
     } catch (error) {
@@ -135,12 +144,12 @@ router.get('/', async (req, res) => {
 // Get course by slug
 router.get('/:slug', async (req, res) => {
     try {
-        const [courses] = await executeQuery(
+        const courses = await executeQuery(
             `SELECT c.*, u.name as instructor_name, u.bio as instructor_bio,
                     u.avatar_url as instructor_avatar
              FROM courses c
              LEFT JOIN users u ON c.instructor_id = u.id
-             WHERE c.slug = ? AND c.is_published = TRUE`,
+             WHERE c.slug = $1 AND c.is_published = true`,
             [req.params.slug]
         );
         
@@ -154,32 +163,32 @@ router.get('/:slug', async (req, res) => {
         const course = courses[0];
         
         // Get lessons
-        const [lessons] = await executeQuery(
+        const lessons = await executeQuery(
             `SELECT id, title, slug, duration, sort_order, is_free, created_at
              FROM lessons 
-             WHERE course_id = ?
+             WHERE course_id = $1
              ORDER BY sort_order ASC`,
             [course.id]
         );
         
         // Get reviews
-        const [reviews] = await executeQuery(
+        const reviews = await executeQuery(
             `SELECT uc.rating, uc.review, uc.completed_at,
                     u.name as user_name, u.avatar_url as user_avatar
              FROM user_courses uc
              JOIN users u ON uc.user_id = u.id
-             WHERE uc.course_id = ? AND uc.rating IS NOT NULL
+             WHERE uc.course_id = $1 AND uc.rating IS NOT NULL
              ORDER BY uc.completed_at DESC
              LIMIT 10`,
             [course.id]
         );
         
         // Get related courses
-        const [relatedCourses] = await executeQuery(
+        const relatedCourses = await executeQuery(
             `SELECT id, title, slug, short_description, thumbnail_url, 
                     price, discounted_price, rating, total_students
              FROM courses 
-             WHERE category = ? AND id != ? AND is_published = TRUE
+             WHERE category = $1 AND id != $2 AND is_published = true
              ORDER BY total_students DESC
              LIMIT 4`,
             [course.category, course.id]
@@ -207,8 +216,8 @@ router.post('/:id/enroll', authenticateToken, async (req, res) => {
         const userId = req.user.id;
         
         // Check if course exists
-        const [courses] = await executeQuery(
-            'SELECT id, title, price FROM courses WHERE id = ? AND is_published = TRUE',
+        const courses = await executeQuery(
+            'SELECT id, title, price FROM courses WHERE id = $1 AND is_published = true',
             [courseId]
         );
         
@@ -222,8 +231,8 @@ router.post('/:id/enroll', authenticateToken, async (req, res) => {
         const course = courses[0];
         
         // Check if already enrolled
-        const [existing] = await executeQuery(
-            'SELECT id FROM user_courses WHERE user_id = ? AND course_id = ?',
+        const existing = await executeQuery(
+            'SELECT id FROM user_courses WHERE user_id = $1 AND course_id = $2',
             [userId, courseId]
         );
         
@@ -237,9 +246,9 @@ router.post('/:id/enroll', authenticateToken, async (req, res) => {
         // For paid courses, check payment
         if (course.price > 0) {
             // Check if payment exists
-            const [payments] = await executeQuery(
+            const payments = await executeQuery(
                 `SELECT id FROM payments 
-                 WHERE user_id = ? AND course_id = ? AND status = 'completed'
+                 WHERE user_id = $1 AND course_id = $2 AND status = 'completed'
                  LIMIT 1`,
                 [userId, courseId]
             );
@@ -260,19 +269,19 @@ router.post('/:id/enroll', authenticateToken, async (req, res) => {
         // Enroll user
         await executeQuery(
             `INSERT INTO user_courses (user_id, course_id, started_at) 
-             VALUES (?, ?, CURRENT_TIMESTAMP)`,
+             VALUES ($1, $2, CURRENT_TIMESTAMP)`,
             [userId, courseId]
         );
         
         // Create activity
         await executeQuery(
-            'INSERT INTO activities (user_id, type, title, reference_id, reference_type) VALUES (?, ?, ?, ?, ?)',
+            'INSERT INTO activities (user_id, type, title, reference_id, reference_type) VALUES ($1, $2, $3, $4, $5)',
             [userId, 'course_started', `Started course: ${course.title}`, courseId, 'course']
         );
         
         // Create notification
         await executeQuery(
-            'INSERT INTO notifications (user_id, type, title, message, icon) VALUES (?, ?, ?, ?, ?)',
+            'INSERT INTO notifications (user_id, type, title, message, icon) VALUES ($1, $2, $3, $4, $5)',
             [userId, 'course', 'Course Enrolled', `You've enrolled in "${course.title}"`, 'book-open']
         );
         
@@ -317,8 +326,8 @@ router.put('/:id/progress', authenticateToken, async (req, res) => {
         }
         
         // Check if enrolled
-        const [enrollments] = await executeQuery(
-            'SELECT id, completed FROM user_courses WHERE user_id = ? AND course_id = ?',
+        const enrollments = await executeQuery(
+            'SELECT id, completed FROM user_courses WHERE user_id = $1 AND course_id = $2',
             [userId, courseId]
         );
         
@@ -334,16 +343,16 @@ router.put('/:id/progress', authenticateToken, async (req, res) => {
         // Update progress
         await executeQuery(
             `UPDATE user_courses 
-             SET progress = ?, current_lesson_id = ?, last_accessed = CURRENT_TIMESTAMP
-             WHERE id = ?`,
+             SET progress = $1, current_lesson_id = $2, last_accessed = CURRENT_TIMESTAMP
+             WHERE id = $3`,
             [progress, lesson_id || null, enrollment.id]
         );
         
         // Check if course is completed
         if (progress >= 100 && !enrollment.completed) {
             // Get course details
-            const [courses] = await executeQuery(
-                'SELECT title FROM courses WHERE id = ?',
+            const courses = await executeQuery(
+                'SELECT title FROM courses WHERE id = $1',
                 [courseId]
             );
             
@@ -353,14 +362,14 @@ router.put('/:id/progress', authenticateToken, async (req, res) => {
                 // Mark as completed
                 await executeQuery(
                     `UPDATE user_courses 
-                     SET completed = TRUE, completed_at = CURRENT_TIMESTAMP, progress = 100
-                     WHERE id = ?`,
+                     SET completed = true, completed_at = CURRENT_TIMESTAMP, progress = 100
+                     WHERE id = $1`,
                     [enrollment.id]
                 );
                 
                 // Award XP
                 await executeQuery(
-                    'UPDATE users SET xp = xp + 500 WHERE id = ?',
+                    'UPDATE users SET xp = xp + 500 WHERE id = $1',
                     [userId]
                 );
                 
@@ -371,35 +380,35 @@ router.put('/:id/progress', authenticateToken, async (req, res) => {
                 await executeQuery(
                     `INSERT INTO certificates 
                      (user_id, course_id, certificate_id, full_name, course_title, verification_url) 
-                     VALUES (?, ?, ?, ?, ?, ?)`,
+                     VALUES ($1, $2, $3, $4, $5, $6)`,
                     [userId, courseId, certificateId, req.user.name, course.title, verificationUrl]
                 );
                 
                 // Create activities
                 await executeQuery(
-                    'INSERT INTO activities (user_id, type, title, reference_id, reference_type) VALUES (?, ?, ?, ?, ?)',
+                    'INSERT INTO activities (user_id, type, title, reference_id, reference_type) VALUES ($1, $2, $3, $4, $5)',
                     [userId, 'course_completed', `Completed course: ${course.title}`, courseId, 'course']
                 );
                 
                 await executeQuery(
-                    'INSERT INTO activities (user_id, type, title, reference_id, reference_type) VALUES (?, ?, ?, ?, ?)',
+                    'INSERT INTO activities (user_id, type, title, reference_id, reference_type) VALUES ($1, $2, $3, $4, $5)',
                     [userId, 'certificate_earned', `Earned certificate: ${course.title}`, courseId, 'certificate']
                 );
                 
                 // Create notifications
                 await executeQuery(
-                    'INSERT INTO notifications (user_id, type, title, message, icon) VALUES (?, ?, ?, ?, ?)',
+                    'INSERT INTO notifications (user_id, type, title, message, icon) VALUES ($1, $2, $3, $4, $5)',
                     [userId, 'success', 'Course Completed!', `Congratulations! You've completed "${course.title}"`, 'check-circle']
                 );
                 
                 await executeQuery(
-                    'INSERT INTO notifications (user_id, type, title, message, icon) VALUES (?, ?, ?, ?, ?)',
+                    'INSERT INTO notifications (user_id, type, title, message, icon) VALUES ($1, $2, $3, $4, $5)',
                     [userId, 'certificate', 'Certificate Earned!', `You've earned a certificate for "${course.title}"`, 'award']
                 );
                 
                 // Get certificate data
-                const [certificates] = await executeQuery(
-                    'SELECT * FROM certificates WHERE certificate_id = ?',
+                const certificates = await executeQuery(
+                    'SELECT * FROM certificates WHERE certificate_id = $1',
                     [certificateId]
                 );
                 
@@ -412,8 +421,8 @@ router.put('/:id/progress', authenticateToken, async (req, res) => {
                     });
                     
                     // Update user stats
-                    const [user] = await executeQuery(
-                        'SELECT xp, level FROM users WHERE id = ?',
+                    const user = await executeQuery(
+                        'SELECT xp, level FROM users WHERE id = $1',
                         [userId]
                     );
                     global.sendToUser(userId, 'user_updated', user[0]);
@@ -449,8 +458,8 @@ router.get('/:id/lessons', authenticateToken, async (req, res) => {
         const userId = req.user.id;
         
         // Check if enrolled
-        const [enrollments] = await executeQuery(
-            'SELECT id FROM user_courses WHERE user_id = ? AND course_id = ?',
+        const enrollments = await executeQuery(
+            'SELECT id FROM user_courses WHERE user_id = $1 AND course_id = $2',
             [userId, courseId]
         );
         
@@ -462,17 +471,17 @@ router.get('/:id/lessons', authenticateToken, async (req, res) => {
         }
         
         // Get lessons
-        const [lessons] = await executeQuery(
+        const lessons = await executeQuery(
             `SELECT id, title, slug, content, video_url, duration, sort_order, is_free, created_at
              FROM lessons 
-             WHERE course_id = ?
+             WHERE course_id = $1
              ORDER BY sort_order ASC`,
             [courseId]
         );
         
         // Get user progress
-        const [progress] = await executeQuery(
-            'SELECT progress, current_lesson_id FROM user_courses WHERE user_id = ? AND course_id = ?',
+        const progress = await executeQuery(
+            'SELECT progress, current_lesson_id FROM user_courses WHERE user_id = $1 AND course_id = $2',
             [userId, courseId]
         );
         
@@ -505,8 +514,8 @@ router.post('/:id/review', authenticateToken, async (req, res) => {
         }
         
         // Check if enrolled and completed
-        const [enrollments] = await executeQuery(
-            'SELECT id, completed FROM user_courses WHERE user_id = ? AND course_id = ?',
+        const enrollments = await executeQuery(
+            'SELECT id, completed FROM user_courses WHERE user_id = $1 AND course_id = $2',
             [userId, courseId]
         );
         
@@ -526,21 +535,21 @@ router.post('/:id/review', authenticateToken, async (req, res) => {
         
         // Update review
         await executeQuery(
-            'UPDATE user_courses SET rating = ?, review = ? WHERE user_id = ? AND course_id = ?',
+            'UPDATE user_courses SET rating = $1, review = $2 WHERE user_id = $3 AND course_id = $4',
             [rating, review || null, userId, courseId]
         );
         
         // Update course average rating
-        const [ratings] = await executeQuery(
+        const ratings = await executeQuery(
             `SELECT AVG(rating) as avg_rating, COUNT(*) as count 
              FROM user_courses 
-             WHERE course_id = ? AND rating IS NOT NULL`,
+             WHERE course_id = $1 AND rating IS NOT NULL`,
             [courseId]
         );
         
         if (ratings.length > 0) {
             await executeQuery(
-                'UPDATE courses SET rating = ?, total_ratings = ? WHERE id = ?',
+                'UPDATE courses SET rating = $1, total_ratings = $2 WHERE id = $3',
                 [ratings[0].avg_rating || 0, ratings[0].count || 0, courseId]
             );
         }
