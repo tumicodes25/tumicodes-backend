@@ -9,6 +9,7 @@ const compression = require('compression');
 const morgan = require('morgan');
 const path = require('path');
 const rateLimit = require('express-rate-limit');
+const cookieParser = require('cookie-parser');
 
 // Import database and routes
 const { initializeDatabase } = require('./models/db');
@@ -32,6 +33,8 @@ app.use(helmet({
 }));
 app.use(compression());
 app.use(morgan('combined'));
+app.use(cookieParser());
+
 
 // Rate limiting
 const limiter = rateLimit({
@@ -216,3 +219,4 @@ if (require.main === module) {
 }
 
 module.exports = { app, server, io };
+
