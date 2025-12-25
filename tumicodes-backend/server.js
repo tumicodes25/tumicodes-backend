@@ -1,4 +1,5 @@
-// server.js - Main Server File
+// server.js - Main Server File (FIXED & VERIFIED)
+
 require('dotenv').config();
 const express = require('express');
 const http = require('http');
@@ -20,59 +21,84 @@ const courseRoutes = require('./routes/courses');
 const paymentRoutes = require('./routes/payments');
 const notificationRoutes = require('./routes/notifications');
 
-// Initialize Express app - ONLY ONCE
+// Initialize Express app
 const app = express();
 
-// Fix for Render proxy (add this line)
-app.set('trust proxy', 1); // Trust first proxy
+/* =========================
+   TRUST PROXY (Render / Nginx)
+========================= */
+app.set('trust proxy', 1);
 
-// Security and performance middleware
+/* =========================
+   SECURITY & PERFORMANCE
+========================= */
 app.use(helmet({
-    contentSecurityPolicy: false, // Disable for development, enable in production
+    contentSecurityPolicy: false,
     crossOriginEmbedderPolicy: false
 }));
+
 app.use(compression());
 app.use(morgan('combined'));
 app.use(cookieParser());
 
-
-// Rate limiting
-const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // Limit each IP to 100 requests per windowMs
-    message: 'Too many requests from this IP, please try again later.'
-});
-app.use('/api/', limiter);
-
-// Body parsing middleware
+/* =========================
+   BODY PARSING (BEFORE ROUTES)
+========================= */
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// CORS configuration
+/* =========================
+   CORS (FIXED FOR POST AUTH)
+========================= */
 const corsOptions = {
-    origin: process.env.FRONTEND_URL ? 
-        process.env.FRONTEND_URL.split(',') : 
-        ['http://localhost:3000', 'http://localhost:8080'],
+    origin: process.env.FRONTEND_URL
+        ? process.env.FRONTEND_URL.split(',')
+        : ['http://localhost:3000', 'http://localhost:8080'],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 };
-app.use(cors(corsOptions));
 
-// Serve static files from public directory
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // IMPORTANT: preflight support
+
+/* =========================
+   RATE LIMITING
+========================= */
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 100,
+    standardHeaders: true,
+    legacyHeaders: false
+});
+app.use('/api/', limiter);
+
+/* =========================
+   STATIC FILES
+========================= */
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Health check endpoint
+/* =========================
+   HEALTH CHECK
+========================= */
 app.get('/health', (req, res) => {
     res.status(200).json({
         status: 'OK',
         timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-        database: 'connected' // You can add DB health check here
+        uptime: process.uptime()
     });
 });
 
-// API Routes
+/* =========================
+   API ROUTES (CONFIRMED)
+========================= */
+app.get('/api', (req, res) => {
+    res.json({
+        status: 'ok',
+        message: 'TumiCodes API root is working'
+    });
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/admin', adminRoutes);
@@ -80,83 +106,65 @@ app.use('/api/courses', courseRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/notifications', notificationRoutes);
 
-// Create HTTP server and Socket.io
+/* =========================
+   HTTP + SOCKET.IO
+========================= */
 const server = http.createServer(app);
+
 const io = socketIo(server, {
     cors: {
-        origin: process.env.FRONTEND_URL || "http://localhost:3000",
-        methods: ["GET", "POST", "PUT", "DELETE"],
+        origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+        methods: ['GET', 'POST', 'PUT', 'DELETE'],
         credentials: true
     }
 });
 
-// WebSocket handling
 const userSockets = new Map();
 
 io.on('connection', (socket) => {
-    console.log('New client connected:', socket.id);
-    
+    console.log('Socket connected:', socket.id);
+
     socket.on('authenticate', (token) => {
         try {
             const jwt = require('jsonwebtoken');
             const decoded = jwt.verify(token, process.env.JWT_SECRET);
-            userSockets.set(decoded.userId, socket.id);
             socket.userId = decoded.userId;
-            console.log(`User ${decoded.userId} authenticated on socket ${socket.id}`);
-            
-            // Send welcome message
+            userSockets.set(decoded.userId, socket.id);
+
             socket.emit('connected', {
-                message: 'Connected to TumiCodes real-time server',
-                timestamp: new Date().toISOString()
+                message: 'Connected to TumiCodes real-time server'
             });
-        } catch (error) {
-            console.error('Socket authentication error:', error.message);
-            socket.emit('auth_error', { error: 'Invalid authentication token' });
+        } catch (err) {
+            socket.emit('auth_error', { error: 'Invalid token' });
         }
     });
-    
-    socket.on('join_room', (room) => {
-        socket.join(room);
-        console.log(`Socket ${socket.id} joined room ${room}`);
-    });
-    
-    socket.on('leave_room', (room) => {
-        socket.leave(room);
-        console.log(`Socket ${socket.id} left room ${room}`);
-    });
-    
+
     socket.on('disconnect', () => {
         if (socket.userId) {
             userSockets.delete(socket.userId);
-            console.log(`User ${socket.userId} disconnected`);
         }
-    });
-    
-    // Error handling
-    socket.on('error', (error) => {
-        console.error('Socket error:', error);
     });
 });
 
-// Function to send real-time updates to specific user
+/* =========================
+   REAL-TIME HELPERS
+========================= */
 global.sendToUser = (userId, event, data) => {
     const socketId = userSockets.get(userId);
-    if (socketId) {
-        io.to(socketId).emit(event, data);
-    }
+    if (socketId) io.to(socketId).emit(event, data);
 };
 
-// Function to broadcast to all users
 global.broadcastToAll = (event, data) => {
     io.emit(event, data);
 };
 
-// Function to send to room
 global.sendToRoom = (room, event, data) => {
     io.to(room).emit(event, data);
 };
 
-// 404 handler
+/* =========================
+   404 HANDLER
+========================= */
 app.use((req, res) => {
     res.status(404).json({
         error: 'Route not found',
@@ -165,55 +173,41 @@ app.use((req, res) => {
     });
 });
 
-// Global error handler
+/* =========================
+   GLOBAL ERROR HANDLER
+========================= */
 app.use((err, req, res, next) => {
     console.error('Global error:', err);
-    
-    const statusCode = err.statusCode || 500;
-    const message = err.message || 'Internal server error';
-    
-    res.status(statusCode).json({
-        error: message,
+
+    res.status(err.statusCode || 500).json({
+        error: err.message || 'Internal server error',
         ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
     });
 });
 
-// Initialize database and start server
+/* =========================
+   SERVER START
+========================= */
 const PORT = process.env.PORT || 3000;
 
 async function startServer() {
     try {
-        // Initialize database
         await initializeDatabase();
-        console.log('Database initialized successfully');
-        
-        // Start server
+        console.log('Database connected');
+
         server.listen(PORT, () => {
-            console.log(`🚀 Server running on port ${PORT}`);
-            console.log(`📊 Health check: http://localhost:${PORT}/health`);
-            console.log(`🔗 WebSocket ready on port ${PORT}`);
-            
-            if (process.env.NODE_ENV === 'development') {
-                console.log(`👑 Admin login: ${process.env.ADMIN_EMAIL || 'tumicodes@gmail.com'}`);
-                console.log(`🔑 Admin password: ${process.env.ADMIN_PASSWORD || 'tumicodes25'}`);
-            }
+            console.log(`Server running on port ${PORT}`);
+            console.log(`Health: http://localhost:${PORT}/health`);
         });
-    } catch (error) {
-        console.error('Failed to start server:', error);
+    } catch (err) {
+        console.error('Startup failed:', err);
         process.exit(1);
     }
 }
 
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
-    console.error('Uncaught Exception:', error);
-});
+process.on('uncaughtException', console.error);
+process.on('unhandledRejection', console.error);
 
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-// Start the server
 if (require.main === module) {
     startServer();
 }
