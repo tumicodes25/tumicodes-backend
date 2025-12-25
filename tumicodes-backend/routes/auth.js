@@ -1,4 +1,4 @@
-// routes/auth.js - Authentication routes
+// routes/auth.js - Authentication routes (POSTGRESQL VERSION)
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
@@ -16,15 +16,7 @@ const generateToken = (userId, expiresIn = '7d') => {
     );
 };
 
-// Simple email send function (mock for now)
-const sendEmail = async ({ to, subject, template, data }) => {
-    console.log(`[EMAIL] ${subject} to ${to}`);
-    console.log(`[EMAIL DATA]`, data);
-    // In production, implement actual email sending
-    return Promise.resolve();
-};
-
-// Register new user
+// Register new user - FIXED FOR POSTGRESQL
 router.post('/register', authRateLimiter, async (req, res) => {
     try {
         const { email, name, password } = req.body;
@@ -54,13 +46,13 @@ router.post('/register', authRateLimiter, async (req, res) => {
             });
         }
         
-        // Check if user exists
-        const [existingUsers] = await executeQuery(
-            'SELECT id FROM users WHERE email = ?',
+        // Check if user exists - POSTGRESQL SYNTAX: $1 instead of ?
+        const result = await executeQuery(
+            'SELECT id FROM users WHERE email = $1',
             [email]
         );
         
-        if (existingUsers.length > 0) {
+        if (result.rows.length > 0) {
             return res.status(409).json({
                 error: 'User with this email already exists',
                 code: 'USER_EXISTS'
@@ -70,34 +62,34 @@ router.post('/register', authRateLimiter, async (req, res) => {
         // Hash password
         const hashedPassword = await bcrypt.hash(password, 12);
         
-        // Create user with default values
-        const [result] = await executeQuery(
-            `INSERT INTO users (email, name, password, role, xp, level, streak) 
-             VALUES (?, ?, ?, 'user', 0, 1, 0)`,
-            [email, name, hashedPassword]
+        // Create user with default values - POSTGRESQL SYNTAX
+        const insertResult = await executeQuery(
+            `INSERT INTO users (email, name, password, role, xp, level, streak, avatar_url) 
+             VALUES ($1, $2, $3, 'user', 0, 1, 0, $4) 
+             RETURNING id, email, name, role, xp, level, streak, created_at`,
+            [
+                email, 
+                name, 
+                hashedPassword,
+                `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=random`
+            ]
         );
+        
+        const newUser = insertResult.rows[0];
         
         // Create JWT token
-        const token = generateToken(result.insertId);
-        
-        // Get user data
-        const [users] = await executeQuery(
-            'SELECT id, email, name, role, xp, level, streak, created_at FROM users WHERE id = ?',
-            [result.insertId]
-        );
-        
-        const user = users[0];
+        const token = generateToken(newUser.id);
         
         // Create welcome notification
         await executeQuery(
-            'INSERT INTO notifications (user_id, type, title, message, icon) VALUES (?, ?, ?, ?, ?)',
-            [user.id, 'success', 'Welcome to TumiCodes! 🎉', 'Your account has been created successfully. Start your coding journey now!', 'rocket']
+            'INSERT INTO notifications (user_id, type, title, message, icon) VALUES ($1, $2, $3, $4, $5)',
+            [newUser.id, 'success', 'Welcome to TumiCodes! 🎉', 'Your account has been created successfully. Start your coding journey now!', 'rocket']
         );
         
         // Create first activity
         await executeQuery(
-            'INSERT INTO activities (user_id, type, title, description) VALUES (?, ?, ?, ?)',
-            [user.id, 'account_created', 'Account Created', 'Welcome to TumiCodes!']
+            'INSERT INTO activities (user_id, type, title, description) VALUES ($1, $2, $3, $4)',
+            [newUser.id, 'account_created', 'Account Created', 'Welcome to TumiCodes!']
         );
         
         // Set cookie for web clients
@@ -111,7 +103,7 @@ router.post('/register', authRateLimiter, async (req, res) => {
         res.status(201).json({
             message: 'Registration successful',
             token,
-            user
+            user: newUser
         });
     } catch (error) {
         console.error('Registration error:', error);
@@ -123,7 +115,7 @@ router.post('/register', authRateLimiter, async (req, res) => {
     }
 });
 
-// Login user
+// Login user - FIXED FOR POSTGRESQL
 router.post('/login', authRateLimiter, async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -136,22 +128,22 @@ router.post('/login', authRateLimiter, async (req, res) => {
             });
         }
         
-        // Get user with additional fields
-        const [users] = await executeQuery(
+        // Get user - POSTGRESQL SYNTAX
+        const result = await executeQuery(
             `SELECT id, email, name, password, role, xp, level, streak, 
-             last_active, created_at 
-             FROM users WHERE email = ?`,
+             last_active, created_at, avatar_url
+             FROM users WHERE email = $1`,
             [email]
         );
         
-        if (users.length === 0) {
+        if (result.rows.length === 0) {
             return res.status(401).json({
                 error: 'Invalid email or password',
                 code: 'INVALID_CREDENTIALS'
             });
         }
         
-        const user = users[0];
+        const user = result.rows[0];
         
         // Check password
         const validPassword = await bcrypt.compare(password, user.password);
@@ -164,7 +156,7 @@ router.post('/login', authRateLimiter, async (req, res) => {
         
         // Update last active
         await executeQuery(
-            'UPDATE users SET last_active = CURRENT_TIMESTAMP WHERE id = ?',
+            'UPDATE users SET last_active = NOW() WHERE id = $1',
             [user.id]
         );
         
@@ -197,7 +189,7 @@ router.post('/login', authRateLimiter, async (req, res) => {
             }
             
             await executeQuery(
-                'UPDATE users SET streak = ? WHERE id = ?',
+                'UPDATE users SET streak = $1 WHERE id = $2',
                 [newStreak, user.id]
             );
             
@@ -207,7 +199,7 @@ router.post('/login', authRateLimiter, async (req, res) => {
             if (newStreak > 1) {
                 const xpGained = Math.min(newStreak * 10, 100); // Cap at 100 XP per day
                 await executeQuery(
-                    'UPDATE users SET xp = xp + ? WHERE id = ?',
+                    'UPDATE users SET xp = xp + $1 WHERE id = $2',
                     [xpGained, user.id]
                 );
                 user.xp += xpGained;
@@ -216,7 +208,7 @@ router.post('/login', authRateLimiter, async (req, res) => {
         
         // Create login activity
         await executeQuery(
-            'INSERT INTO activities (user_id, type, title, description) VALUES (?, ?, ?, ?)',
+            'INSERT INTO activities (user_id, type, title, description) VALUES ($1, $2, $3, $4)',
             [user.id, 'login', 'User Logged In', 'Successfully logged into account']
         );
         
@@ -243,7 +235,7 @@ router.post('/login', authRateLimiter, async (req, res) => {
     }
 });
 
-// Verify token
+// Verify token - FIXED FOR POSTGRESQL
 router.post('/verify', async (req, res) => {
     try {
         const token = req.body.token || req.cookies.token;
@@ -258,13 +250,13 @@ router.post('/verify', async (req, res) => {
         
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         
-        // Get user data
-        const [users] = await executeQuery(
-            'SELECT id, email, name, role, xp, level, streak, created_at FROM users WHERE id = ?',
+        // Get user data - POSTGRESQL SYNTAX
+        const result = await executeQuery(
+            'SELECT id, email, name, role, xp, level, streak, avatar_url, created_at FROM users WHERE id = $1',
             [decoded.userId]
         );
         
-        if (users.length === 0) {
+        if (result.rows.length === 0) {
             return res.status(404).json({
                 error: 'User not found',
                 code: 'USER_NOT_FOUND',
@@ -274,7 +266,7 @@ router.post('/verify', async (req, res) => {
         
         res.json({
             valid: true,
-            user: users[0]
+            user: result.rows[0]
         });
     } catch (error) {
         if (error.name === 'JsonWebTokenError') {
@@ -324,7 +316,7 @@ router.post('/logout', (req, res) => {
     }
 });
 
-// Forgot password (simplified version)
+// Forgot password - FIXED FOR POSTGRESQL
 router.post('/forgot-password', authRateLimiter, async (req, res) => {
     try {
         const { email } = req.body;
@@ -344,20 +336,20 @@ router.post('/forgot-password', authRateLimiter, async (req, res) => {
             });
         }
         
-        // Check if user exists
-        const [users] = await executeQuery(
-            'SELECT id, email, name FROM users WHERE email = ?',
+        // Check if user exists - POSTGRESQL SYNTAX
+        const result = await executeQuery(
+            'SELECT id, email, name FROM users WHERE email = $1',
             [email]
         );
         
-        if (users.length === 0) {
+        if (result.rows.length === 0) {
             // Return success even if user doesn't exist (security best practice)
             return res.json({
                 message: 'If an account exists with this email, you will receive a password reset link.'
             });
         }
         
-        const user = users[0];
+        const user = result.rows[0];
         
         // Generate reset token (valid for 1 hour)
         const resetToken = jwt.sign(
@@ -369,9 +361,9 @@ router.post('/forgot-password', authRateLimiter, async (req, res) => {
         // For development, return the token
         const resetLink = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${resetToken}`;
         
-        // Create notification
+        // Create notification - POSTGRESQL SYNTAX
         await executeQuery(
-            'INSERT INTO notifications (user_id, type, title, message, icon) VALUES (?, ?, ?, ?, ?)',
+            'INSERT INTO notifications (user_id, type, title, message, icon) VALUES ($1, $2, $3, $4, $5)',
             [user.id, 'warning', 'Password Reset Requested', 'A password reset has been requested for your account.', 'key']
         );
         
@@ -389,7 +381,7 @@ router.post('/forgot-password', authRateLimiter, async (req, res) => {
     }
 });
 
-// Reset password
+// Reset password - FIXED FOR POSTGRESQL
 router.post('/reset-password', authRateLimiter, async (req, res) => {
     try {
         const { token, newPassword, confirmPassword } = req.body;
@@ -432,21 +424,21 @@ router.post('/reset-password', authRateLimiter, async (req, res) => {
             // Hash new password
             const hashedPassword = await bcrypt.hash(newPassword, 12);
             
-            // Update password
+            // Update password - POSTGRESQL SYNTAX
             await executeQuery(
-                'UPDATE users SET password = ? WHERE id = ?',
+                'UPDATE users SET password = $1 WHERE id = $2',
                 [hashedPassword, decoded.userId]
             );
             
-            // Create notification
+            // Create notification - POSTGRESQL SYNTAX
             await executeQuery(
-                'INSERT INTO notifications (user_id, type, title, message, icon) VALUES (?, ?, ?, ?, ?)',
+                'INSERT INTO notifications (user_id, type, title, message, icon) VALUES ($1, $2, $3, $4, $5)',
                 [decoded.userId, 'success', 'Password Updated', 'Your password has been successfully updated.', 'check-circle']
             );
             
-            // Create activity
+            // Create activity - POSTGRESQL SYNTAX
             await executeQuery(
-                'INSERT INTO activities (user_id, type, title, description) VALUES (?, ?, ?, ?)',
+                'INSERT INTO activities (user_id, type, title, description) VALUES ($1, $2, $3, $4)',
                 [decoded.userId, 'profile_updated', 'Password Reset', 'Password was successfully reset']
             );
             
@@ -471,7 +463,7 @@ router.post('/reset-password', authRateLimiter, async (req, res) => {
     }
 });
 
-// Refresh token
+// Refresh token - FIXED FOR POSTGRESQL
 router.post('/refresh-token', async (req, res) => {
     try {
         const oldToken = req.body.token || req.cookies.token;
@@ -486,13 +478,13 @@ router.post('/refresh-token', async (req, res) => {
         // Verify old token
         const decoded = jwt.verify(oldToken, process.env.JWT_SECRET);
         
-        // Check if user exists
-        const [users] = await executeQuery(
-            'SELECT id FROM users WHERE id = ?',
+        // Check if user exists - POSTGRESQL SYNTAX
+        const result = await executeQuery(
+            'SELECT id FROM users WHERE id = $1',
             [decoded.userId]
         );
         
-        if (users.length === 0) {
+        if (result.rows.length === 0) {
             return res.status(404).json({
                 error: 'User not found',
                 code: 'USER_NOT_FOUND'
@@ -528,6 +520,15 @@ router.post('/refresh-token', async (req, res) => {
             code: 'REFRESH_FAILED'
         });
     }
+});
+
+// GET /api/auth/check - Simple endpoint to check if auth is working
+router.get('/check', (req, res) => {
+    res.json({
+        status: 'ok',
+        message: 'Authentication API is working',
+        timestamp: new Date().toISOString()
+    });
 });
 
 module.exports = router;
