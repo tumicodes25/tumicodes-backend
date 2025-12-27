@@ -161,10 +161,10 @@ global.broadcastToAll = (event, data) => {
 global.sendToRoom = (room, event, data) => {
     io.to(room).emit(event, data);
 };
+
 app.post('/api/auth/register', (req, res) => {
     res.json({
-        success: true,
-        message: 'REGISTER ROUTE HIT',
+        hit: true,
         body: req.body
     });
 });
@@ -220,5 +220,6 @@ if (require.main === module) {
 }
 
 module.exports = { app, server, io };
+
 
 
