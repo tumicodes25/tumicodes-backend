@@ -187,35 +187,7 @@ async function initializeDatabase() {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         `);
 
-        await connection.execute(`
-            CREATE TABLE IF NOT EXISTS projects (
-                id INT PRIMARY KEY AUTO_INCREMENT,
-                user_id INT NOT NULL,
-                title VARCHAR(255) NOT NULL,
-                slug VARCHAR(255) NOT NULL,
-                description TEXT,
-                thumbnail_url VARCHAR(500),
-                github_url VARCHAR(500),
-                live_url VARCHAR(500),
-                tags JSON,
-                status ENUM('planning', 'in_progress', 'completed', 'archived') DEFAULT 'planning',
-                progress INT DEFAULT 0,
-                is_public BOOLEAN DEFAULT TRUE,
-                views_count INT DEFAULT 0,
-                likes_count INT DEFAULT 0,
-                collaborators JSON,
-                started_at DATETIME DEFAULT NULL,
-                completed_at DATETIME,
-                created_at DATETIME DEFAULT NULL,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                INDEX idx_user_id (user_id),
-                INDEX idx_status (status),
-                UNIQUE KEY unique_project_slug (slug(191)),
-                INDEX idx_slug (slug),
-                -- FULLTEXT idx_project_search (title, description) -- removed for compatibility with provider MySQL
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-        `);
+        await connection.execute(`    CREATE TABLE IF NOT EXISTS projects (        id INT PRIMARY KEY AUTO_INCREMENT,        user_id INT NOT NULL,        title VARCHAR(191) NOT NULL,        slug VARCHAR(191) NOT NULL,        description TEXT,        thumbnail_url VARCHAR(500),        github_url VARCHAR(500),        live_url VARCHAR(500),        tags TEXT,        status ENUM('planning', 'in_progress', 'completed', 'archived')            DEFAULT 'planning',        progress INT DEFAULT 0,        is_public BOOLEAN DEFAULT TRUE,        views_count INT DEFAULT 0,        likes_count INT DEFAULT 0,        collaborators TEXT,        started_at DATETIME DEFAULT NULL,        completed_at DATETIME,        created_at DATETIME DEFAULT NULL,        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP            ON UPDATE CURRENT_TIMESTAMP,        FOREIGN KEY (user_id)            REFERENCES users(id)            ON DELETE CASCADE,        INDEX idx_user_id (user_id),        INDEX idx_status (status),        UNIQUE KEY unique_project_slug (slug(191)),        INDEX idx_slug (slug(191))    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`);
 
         await connection.execute(`
             CREATE TABLE IF NOT EXISTS notifications (
@@ -225,7 +197,7 @@ async function initializeDatabase() {
                 title VARCHAR(255) NOT NULL,
                 message TEXT NOT NULL,
                 icon VARCHAR(50),
-                data JSON,
+                data TEXT,
                 is_read BOOLEAN DEFAULT FALSE,
                 created_at DATETIME DEFAULT NULL,
                 read_at DATETIME,
@@ -248,8 +220,8 @@ async function initializeDatabase() {
                 payment_method VARCHAR(50),
                 payment_gateway VARCHAR(50),
                 transaction_id VARCHAR(100) UNIQUE,
-                gateway_response JSON,
-                metadata JSON,
+                gateway_response TEXT,
+                metadata TEXT,
                 created_at DATETIME DEFAULT NULL,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -307,7 +279,7 @@ async function initializeDatabase() {
                 description TEXT,
                 reference_id INT,
                 reference_type VARCHAR(50),
-                metadata JSON,
+                metadata TEXT,
                 created_at DATETIME DEFAULT NULL,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
                 INDEX idx_user_id (user_id),
