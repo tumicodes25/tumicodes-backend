@@ -366,7 +366,12 @@ router.post('/verify-otp', authRateLimiter, async (req, res) => {
             [user.id, 'success', 'Email Verified', 'Your email address has been verified.', 'check-circle']
         );
 
-        res.json({ message: 'Email verified successfully' });
+        // generate auth token for the user so frontend can auto-login
+        const jwt = require('jsonwebtoken');
+        const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+
+        // return token and success
+        res.json({ message: 'Email verified successfully', token });
     } catch (error) {
         console.error('Verify OTP error:', error);
         res.status(500).json({ error: 'OTP verification failed', code: 'OTP_VERIFY_FAILED' });
