@@ -113,9 +113,9 @@ async function initializeDatabase() {
             FOREIGN KEY (instructor_id)
             REFERENCES users(id)
             ON DELETE SET NULL,
-        UNIQUE KEY unique_course_slug (slug),
-        INDEX idx_slug (slug),
-        INDEX idx_title (title),
+        UNIQUE KEY unique_course_slug (slug(191)),
+        INDEX idx_slug (slug(191)),
+        INDEX idx_title (title(191)),
         INDEX idx_category (category),
         INDEX idx_difficulty (difficulty),
         INDEX idx_is_published (is_published)
