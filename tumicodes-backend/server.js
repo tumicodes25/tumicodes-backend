@@ -177,6 +177,15 @@ global.sendToRoom = (room, event, data) => {
     io.to(room).emit(event, data);
 };
 
+// Root route for uptime checks
+app.get('/', (req, res) => {
+    res.status(200).json({
+        success: true,
+        message: 'TumiCodes Backend API is running',
+        version: '1.0.0'
+    });
+});
+
 // 404 handler
 app.use((req, res) => {
     res.status(404).json({
