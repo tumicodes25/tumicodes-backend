@@ -27,7 +27,7 @@
     "compression": "^1.7.4",
     "express-rate-limit": "^6.10.0",
     "morgan": "^1.10.0",
-    "resend": "^1.11.0"
+    "resend": "^1.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1",
