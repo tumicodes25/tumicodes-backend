@@ -88,36 +88,40 @@ async function initializeDatabase() {
         `);
 
         await connection.execute(`
-            CREATE TABLE IF NOT EXISTS courses (
-                id INT PRIMARY KEY AUTO_INCREMENT,
-                title VARCHAR(255) NOT NULL,
-                slug VARCHAR(255) NOT NULL,
-                description TEXT,
-                short_description VARCHAR(500),
-                category VARCHAR(100),
-                difficulty ENUM('beginner', 'intermediate', 'advanced') DEFAULT 'beginner',
-                price DECIMAL(10, 2) DEFAULT 0.00,
-                discounted_price DECIMAL(10, 2),
-                thumbnail_url VARCHAR(500),
-                video_url VARCHAR(500),
-                duration INT DEFAULT 0, -- in minutes
-                rating DECIMAL(3, 2) DEFAULT 0.00,
-                total_ratings INT DEFAULT 0,
-                total_students INT DEFAULT 0,
-                is_featured BOOLEAN DEFAULT FALSE,
-                is_published BOOLEAN DEFAULT TRUE,
-                instructor_id INT,
-                created_at DATETIME DEFAULT NULL,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                FOREIGN KEY (instructor_id) REFERENCES users(id) ON DELETE SET NULL,
-                UNIQUE KEY unique_course_slug (slug(191)),
-                INDEX idx_slug (slug(191)),
-                INDEX idx_category (category),
-                INDEX idx_difficulty (difficulty),
-                INDEX idx_is_published (is_published),
-                FULLTEXT idx_search (title, description, short_description)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-        `);
+    CREATE TABLE IF NOT EXISTS courses (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        title VARCHAR(255) NOT NULL,
+        slug VARCHAR(255) NOT NULL,
+        description TEXT,
+        short_description VARCHAR(500),
+        category VARCHAR(100),
+        difficulty ENUM('beginner', 'intermediate', 'advanced') DEFAULT 'beginner',
+        price DECIMAL(10, 2) DEFAULT 0.00,
+        discounted_price DECIMAL(10, 2),
+        thumbnail_url VARCHAR(500),
+        video_url VARCHAR(500),
+        duration INT DEFAULT 0,
+        rating DECIMAL(3, 2) DEFAULT 0.00,
+        total_ratings INT DEFAULT 0,
+        total_students INT DEFAULT 0,
+        is_featured BOOLEAN DEFAULT FALSE,
+        is_published BOOLEAN DEFAULT TRUE,
+        instructor_id INT NULL,
+        created_at DATETIME DEFAULT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        CONSTRAINT fk_courses_instructor
+            FOREIGN KEY (instructor_id)
+            REFERENCES users(id)
+            ON DELETE SET NULL,
+        UNIQUE KEY unique_course_slug (slug),
+        INDEX idx_slug (slug),
+        INDEX idx_title (title),
+        INDEX idx_category (category),
+        INDEX idx_difficulty (difficulty),
+        INDEX idx_is_published (is_published)
+    ) ENGINE=InnoDB
+      DEFAULT CHARSET=utf8mb4
+      COLLATE=utf8mb4_unicode_ci;`);
 
         await connection.execute(`
             CREATE TABLE IF NOT EXISTS user_courses (
@@ -208,8 +212,8 @@ async function initializeDatabase() {
                 INDEX idx_user_id (user_id),
                 INDEX idx_status (status),
                 UNIQUE KEY unique_project_slug (slug(191)),
-                INDEX idx_slug (slug(191)),
-                FULLTEXT idx_project_search (title, description)
+                INDEX idx_slug (slug),
+                -- FULLTEXT idx_project_search (title, description) -- removed for compatibility with provider MySQL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         `);
 
