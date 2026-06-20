@@ -67,7 +67,7 @@ async function initializeDatabase() {
         await connection.execute(`
             CREATE TABLE IF NOT EXISTS users (
                 id INT PRIMARY KEY AUTO_INCREMENT,
-                email VARCHAR(255) UNIQUE NOT NULL,
+                email VARCHAR(255) NOT NULL,
                 name VARCHAR(255),
                 password VARCHAR(255) NOT NULL,
                 role ENUM('user', 'admin', 'instructor') DEFAULT 'user',
@@ -80,7 +80,8 @@ async function initializeDatabase() {
                 email_verified BOOLEAN DEFAULT FALSE,
                 created_at DATETIME DEFAULT NULL,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                INDEX idx_email (email),
+                UNIQUE KEY unique_email (email(191)),
+                INDEX idx_email (email(191)),
                 INDEX idx_role (role),
                 INDEX idx_created_at (created_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -90,7 +91,7 @@ async function initializeDatabase() {
             CREATE TABLE IF NOT EXISTS courses (
                 id INT PRIMARY KEY AUTO_INCREMENT,
                 title VARCHAR(255) NOT NULL,
-                slug VARCHAR(255) UNIQUE NOT NULL,
+                slug VARCHAR(255) NOT NULL,
                 description TEXT,
                 short_description VARCHAR(500),
                 category VARCHAR(100),
@@ -109,7 +110,8 @@ async function initializeDatabase() {
                 created_at DATETIME DEFAULT NULL,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 FOREIGN KEY (instructor_id) REFERENCES users(id) ON DELETE SET NULL,
-                INDEX idx_slug (slug),
+                UNIQUE KEY unique_course_slug (slug(191)),
+                INDEX idx_slug (slug(191)),
                 INDEX idx_category (category),
                 INDEX idx_difficulty (difficulty),
                 INDEX idx_is_published (is_published),
@@ -153,7 +155,7 @@ async function initializeDatabase() {
                 created_at DATETIME DEFAULT NULL,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE,
-                UNIQUE KEY unique_course_lesson (course_id, slug),
+                UNIQUE KEY unique_course_lesson (course_id, slug(191)),
                 INDEX idx_course_id (course_id),
                 INDEX idx_sort_order (sort_order)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -186,7 +188,7 @@ async function initializeDatabase() {
                 id INT PRIMARY KEY AUTO_INCREMENT,
                 user_id INT NOT NULL,
                 title VARCHAR(255) NOT NULL,
-                slug VARCHAR(255) UNIQUE NOT NULL,
+                slug VARCHAR(255) NOT NULL,
                 description TEXT,
                 thumbnail_url VARCHAR(500),
                 github_url VARCHAR(500),
@@ -205,7 +207,8 @@ async function initializeDatabase() {
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
                 INDEX idx_user_id (user_id),
                 INDEX idx_status (status),
-                INDEX idx_slug (slug),
+                UNIQUE KEY unique_project_slug (slug(191)),
+                INDEX idx_slug (slug(191)),
                 FULLTEXT idx_project_search (title, description)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         `);
@@ -330,7 +333,7 @@ async function initializeDatabase() {
             CREATE TABLE IF NOT EXISTS user_sessions (
                 id INT PRIMARY KEY AUTO_INCREMENT,
                 user_id INT NOT NULL,
-                session_token VARCHAR(255) UNIQUE NOT NULL,
+                session_token VARCHAR(255) NOT NULL,
                 ip_address VARCHAR(45),
                 user_agent TEXT,
                 expires_at DATETIME NOT NULL,
@@ -338,7 +341,8 @@ async function initializeDatabase() {
                 created_at DATETIME DEFAULT NULL,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
                 INDEX idx_user_id (user_id),
-                INDEX idx_session_token (session_token),
+                UNIQUE KEY unique_session_token (session_token(191)),
+                INDEX idx_session_token (session_token(191)),
                 INDEX idx_expires_at (expires_at)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         `);
